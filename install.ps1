@@ -1,5 +1,5 @@
 # install.ps1 - Remote Installation Script for CareFetch
-# Download: iwr -useb https://raw.githubusercontent.com/beqare/carefetch/refs/heads/main/install.ps1   | iex
+# Download: iwr -useb https://raw.githubusercontent.com/beqare/carefetch/refs/heads/main/install.ps1 | iex
 
 param(
     [switch]$ForceColor = $false
@@ -68,7 +68,7 @@ function Install-CareFetch {
     }
     
     # Download carefetch.ps1 from GitHub
-    $scriptUrl = "https://raw.githubusercontent.com/beqare/carefetch/refs/heads/main/carefetch.ps1  "
+    $scriptUrl = "https://raw.githubusercontent.com/beqare/carefetch/refs/heads/main/carefetch.ps1"
     $scriptPath = Join-Path $installPath "carefetch.ps1"
     
     try {
@@ -84,7 +84,10 @@ function Install-CareFetch {
     
     # Create batch file for cmd compatibility
     $batPath = Join-Path $installPath "carefetch.bat"
-    $batchContent = "@echo off`npowershell -ExecutionPolicy Bypass -File `"$installPath\\carefetch.ps1`" %*"
+    $batchContent = @"
+@echo off
+powershell.exe -ExecutionPolicy Bypass -NoLogo -NoProfile -File "$installPath\carefetch.ps1" %*
+"@
     $batchContent | Set-Content -Path $batPath -Encoding ASCII
     Write-Host "Created carefetch.bat for CMD compatibility" -ForegroundColor Green
     
@@ -98,7 +101,7 @@ function Install-CareFetch {
         Write-Host "PATH already contains installation directory" -ForegroundColor Yellow
     }
     
-    # Update PowerShell profile
+    # Update PowerShell profile (CurrentUserAllHosts)
     $profilePath = $PROFILE.CurrentUserAllHosts
     $profileDir = Split-Path $profilePath -Parent
     
@@ -106,28 +109,43 @@ function Install-CareFetch {
         New-Item -ItemType Directory -Path $profileDir -Force | Out-Null
     }
     
-    # CORRECTED: Use the absolute path instead of $PSScriptRoot
+    # Define function that resolves path at runtime (safe for admin/non-admin)
     $aliasFunction = @"
 # CareFetch Function
 function global:carefetch {
     param(
         [switch]`$ForceColor = `$false
     )
-    & "$installPath\carefetch.ps1" @PSBoundParameters
+    # Resolve install path dynamically at runtime
+    `$isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    if (`$isAdmin) {
+        `$installPath = "`$env:ProgramFiles\CareFetch"
+    } else {
+        `$installPath = "`$env:LOCALAPPDATA\CareFetch"
+    }
+    `$scriptPath = Join-Path `$installPath "carefetch.ps1"
+    if (-not (Test-Path `$scriptPath)) {
+        Write-Error "CareFetch not found at `$scriptPath. Run installer or repair."
+        return 1
+    }
+    & `$scriptPath @PSBoundParameters
 }
 
 Set-Alias -Name cf -Value carefetch -Scope Global -ErrorAction SilentlyContinue
 "@
 
+    # Read current profile (or empty if none)
     $profileContent = if (Test-Path $profilePath) { Get-Content $profilePath -Raw } else { "" }
-    
-    if ($profileContent -notlike "*# CareFetch Function*") {
-        Add-Content -Path $profilePath -Value $aliasFunction
-        Write-Host "Added function and alias to PowerShell profile" -ForegroundColor Green
-    }
-    else {
-        Write-Host "PowerShell profile already configured" -ForegroundColor Yellow
-    }
+
+    # Remove any old CareFetch section to prevent duplicates
+    $profileContent = $profileContent -replace "(?s)# CareFetch Function.*?Set-Alias -Name cf.*?`n`n?", ""
+
+    # Write back cleaned profile
+    Set-Content -Path $profilePath -Value $profileContent.Trim() -Force -ErrorAction SilentlyContinue
+
+    # Append new definition
+    Add-Content -Path $profilePath -Value "`n$aliasFunction" -Encoding UTF8
+    Write-Host "Added (or updated) function and alias in PowerShell profile" -ForegroundColor Green
     
     if ($RepairMode) {
         Write-Host "`nRepair completed successfully!" -ForegroundColor Green
@@ -139,7 +157,7 @@ Set-Alias -Name cf -Value carefetch -Scope Global -ErrorAction SilentlyContinue
     Write-Host "You can now use:" -ForegroundColor Cyan
     Write-Host "  - In PowerShell: 'carefetch' or 'cf'" -ForegroundColor White
     Write-Host "  - In CMD: 'carefetch'" -ForegroundColor White
-    Write-Host "`nNote: You may need to restart your shell or run '. `$PROFILE' to load changes" -ForegroundColor Yellow
+    Write-Host "`nNote: Restart your terminal or run '. `$PROFILE' to apply changes immediately." -ForegroundColor Yellow
     
     Start-Sleep -Seconds 3
 }
@@ -166,44 +184,31 @@ function Uninstall-CareFetch {
     $profilePath = $PROFILE.CurrentUserAllHosts
     if (Test-Path $profilePath) {
         $content = Get-Content $profilePath -Raw
-        $newContent = $content -replace "(?s)# CareFetch Function.*?`n", ""
-        
-        if ($content -ne $newContent) {
-            Set-Content -Path $profilePath -Value $newContent -Force
-            Write-Host "Removed CareFetch from PowerShell profile" -ForegroundColor Green
-        }
+        # Remove entire CareFetch block
+        $newContent = $content -replace "(?s)# CareFetch Function.*?Set-Alias -Name cf.*?`n`n?", ""
+        $newContent = $newContent.Trim()
+        Set-Content -Path $profilePath -Value $newContent -Force
+        Write-Host "Removed CareFetch from PowerShell profile" -ForegroundColor Green
     }
     
     # Remove from PATH
     $pathVar = [Environment]::GetEnvironmentVariable("PATH", "User")
-    $newPath = ($pathVar -split ';' | Where-Object { $_ -notlike "*CareFetch*" }) -join ';'
+    $paths = $pathVar -split ';' | Where-Object { $_ -and $_ -notlike "*CareFetch*" }
+    $newPath = $paths -join ';'
     [Environment]::SetEnvironmentVariable("PATH", $newPath, "User")
     Write-Host "Removed CareFetch from PATH" -ForegroundColor Green
     
     # Delete installation directory
-    Remove-Item -Path $status.Path -Recurse -Force -ErrorAction SilentlyContinue
-    Write-Host "Deleted installation directory" -ForegroundColor Green
+    try {
+        Remove-Item -Path $status.Path -Recurse -Force
+        Write-Host "Deleted installation directory" -ForegroundColor Green
+    }
+    catch {
+        Write-Host "Warning: Could not delete install directory (may be in use)" -ForegroundColor Yellow
+    }
     
     Write-Host "`nUninstallation completed!" -ForegroundColor Green
     Start-Sleep -Seconds 3
-}
-
-function Show-Status {
-    $status = Get-InstallStatus
-    
-    Write-Host "Installation Status:" -ForegroundColor Cyan
-    Write-Host "  Installed: " -NoNewline
-    if ($status.Installed) {
-        Write-Host "Yes" -ForegroundColor Green
-    }
-    else {
-        Write-Host "No" -ForegroundColor Red
-    }
-    
-    Write-Host "  Path: $($status.Path)" -ForegroundColor White
-    Write-Host "  Admin Mode: $($status.IsAdmin)" -ForegroundColor White
-    Write-Host ""
-    Pause
 }
 
 # Main execution
@@ -211,7 +216,7 @@ do {
     Show-Menu
     $choice = Read-Host "Enter your choice [0-3]"
     
-    switch ($choice) {
+    switch ($choice.Trim()) {
         '1' {
             Install-CareFetch -RepairMode $false
         }
@@ -223,6 +228,7 @@ do {
         }
         '0' {
             Write-Host "Exiting installer..." -ForegroundColor Gray
+            break
         }
         default {
             Write-Host "Invalid choice. Please enter 0-3." -ForegroundColor Red
