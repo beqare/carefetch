@@ -84,7 +84,7 @@ function Install-CareFetch {
     
     # Create batch file for cmd compatibility
     $batPath = Join-Path $installPath "carefetch.bat"
-    $batchContent = "@echo off`npowershell -ExecutionPolicy Bypass -File `"%~dp0carefetch.ps1`" %*"
+    $batchContent = "@echo off`npowershell -ExecutionPolicy Bypass -File `"$installPath\\carefetch.ps1`" %*"
     $batchContent | Set-Content -Path $batPath -Encoding ASCII
     Write-Host "Created carefetch.bat for CMD compatibility" -ForegroundColor Green
     
@@ -106,13 +106,14 @@ function Install-CareFetch {
         New-Item -ItemType Directory -Path $profileDir -Force | Out-Null
     }
     
+    # CORRECTED: Use the absolute path instead of $PSScriptRoot
     $aliasFunction = @"
 # CareFetch Function
 function global:carefetch {
     param(
         [switch]`$ForceColor = `$false
     )
-    & "`$(`$PSScriptRoot)\carefetch.ps1" @PSBoundParameters
+    & "$installPath\carefetch.ps1" @PSBoundParameters
 }
 
 Set-Alias -Name cf -Value carefetch -Scope Global -ErrorAction SilentlyContinue
