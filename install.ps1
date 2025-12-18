@@ -84,9 +84,9 @@ function Install-CareFetch {
     
     # Create batch file for cmd compatibility
     $batPath = Join-Path $installPath "carefetch.bat"
-        # Create a simple, robust batch wrapper that locates the script and calls it with -File.
-        # Using -File with a quoted path avoids complex quoting issues in CMD.
-        $batchContent = @'
+    # Create a simple, robust batch wrapper that locates the script and calls it with -File.
+    # Using -File with a quoted path avoids complex quoting issues in CMD.
+    $batchContent = @'
 @echo off
 set "PF=%ProgramFiles%\CareFetch\carefetch.ps1"
 set "LA=%LOCALAPPDATA%\CareFetch\carefetch.ps1"
