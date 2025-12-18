@@ -166,7 +166,12 @@ function Uninstall-CareFetch {
     $profilePath = $PROFILE.CurrentUserAllHosts
     if (Test-Path $profilePath) {
         $content = Get-Content $profilePath -Raw
-        $newContent = $content -replace "(?s)# CareFetch Function.*?`n", ""
+        # Remove the entire CareFetch function block
+        $pattern = "(?sm)# CareFetch Function.*?Set-Alias.*?`r?`n"
+        $newContent = $content -replace $pattern, ""
+        
+        # Also remove any orphaned aliases
+        $newContent = $newContent -replace "Set-Alias.*-Name cf.*`r?`n", ""
         
         if ($content -ne $newContent) {
             Set-Content -Path $profilePath -Value $newContent -Force
@@ -174,17 +179,41 @@ function Uninstall-CareFetch {
         }
     }
     
-    # Remove from PATH
+    # Remove ALL CareFetch paths from PATH (both Program Files and LocalAppData)
     $pathVar = [Environment]::GetEnvironmentVariable("PATH", "User")
-    $newPath = ($pathVar -split ';' | Where-Object { $_ -notlike "*CareFetch*" }) -join ';'
+    $pathParts = $pathVar -split ';'
+    
+    # Filter out any path containing "CareFetch"
+    $filteredPaths = @()
+    foreach ($part in $pathParts) {
+        if ($part -and $part.Trim() -ne "" -and $part -notlike "*CareFetch*") {
+            $filteredPaths += $part
+        }
+    }
+    
+    $newPath = $filteredPaths -join ';'
     [Environment]::SetEnvironmentVariable("PATH", $newPath, "User")
-    Write-Host "Removed CareFetch from PATH" -ForegroundColor Green
+    Write-Host "Removed all CareFetch entries from PATH" -ForegroundColor Green
     
     # Delete installation directory
-    Remove-Item -Path $status.Path -Recurse -Force -ErrorAction SilentlyContinue
-    Write-Host "Deleted installation directory" -ForegroundColor Green
+    if (Test-Path $status.Path) {
+        Remove-Item -Path $status.Path -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host "Deleted installation directory: $($status.Path)" -ForegroundColor Green
+    }
+    
+    # Also check for Program Files installation if uninstalling from LocalAppData
+    $programFilesPath = "$env:ProgramFiles\CareFetch"
+    if ($status.Path -ne $programFilesPath -and (Test-Path $programFilesPath)) {
+        Write-Host "Found additional installation in Program Files..." -ForegroundColor Yellow
+        $confirm2 = Read-Host "Do you also want to remove: $programFilesPath ? (y/N)"
+        if ($confirm2 -match '^[Yy]$') {
+            Remove-Item -Path $programFilesPath -Recurse -Force -ErrorAction SilentlyContinue
+            Write-Host "Removed Program Files installation" -ForegroundColor Green
+        }
+    }
     
     Write-Host "`nUninstallation completed!" -ForegroundColor Green
+    Write-Host "You should restart your terminals to apply all changes." -ForegroundColor Yellow
     Start-Sleep -Seconds 3
 }
 
