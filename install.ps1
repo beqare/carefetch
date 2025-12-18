@@ -84,15 +84,22 @@ function Install-CareFetch {
     
     # Create batch file for cmd compatibility
     $batPath = Join-Path $installPath "carefetch.bat"
-    # Create a batch wrapper that resolves the installation path at runtime.
-    # This avoids hard-coding ProgramFiles vs LOCALAPPDATA and prevents -File parsing errors.
-    $batchContent = @'
+        # Create a simple, robust batch wrapper that locates the script and calls it with -File.
+        # Using -File with a quoted path avoids complex quoting issues in CMD.
+        $batchContent = @'
 @echo off
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "
-  $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator);
-  $install = if ($isAdmin) { $env:ProgramFiles + '\\CareFetch' } else { $env:LOCALAPPDATA + '\\CareFetch' };
-  & (Join-Path $install 'carefetch.ps1') @args
-" %*
+set "PF=%ProgramFiles%\CareFetch\carefetch.ps1"
+set "LA=%LOCALAPPDATA%\CareFetch\carefetch.ps1"
+if exist "%PF%" (
+    set "TARGET=%PF%"
+) else (
+    set "TARGET=%LA%"
+)
+if not exist "%TARGET%" (
+    echo CareFetch script not found: "%TARGET%"
+    exit /b 1
+)
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%TARGET%" %*
 '@
     $batchContent | Set-Content -Path $batPath -Encoding ASCII
     Write-Host "Created dynamic carefetch.bat for CMD compatibility" -ForegroundColor Green
