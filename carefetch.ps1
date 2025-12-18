@@ -13,7 +13,8 @@ function Get-AccentColor {
         $g = (($colorValue -shr 8) -band 0xFF)
         $r = (($colorValue -shr 16) -band 0xFF)
         return "$([char]27)[38;2;$r;$g;${b}m"
-    } catch {
+    }
+    catch {
         return "$([char]27)[96m"  # Fallback: hellcyan
     }
 }

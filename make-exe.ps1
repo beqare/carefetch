@@ -1,1 +1,0 @@
-Invoke-ps2exe -inputFile "install-carefetch.ps1" -outputFile "carefetch-setup.exe" -iconFile "C:\Dev\shell\carefetch\icon.ico" -title "CareFetch Installer" -company "CareFetch" -product "CareFetch" -version "1.0.0.0"
