@@ -92,6 +92,12 @@ function Install-CareFetch {
 @echo off
 rem CareFetch shim - locates carefetch.ps1 and runs it with PowerShell
 set "TARGET=%~dp0carefetch.ps1"
+rem If first argument is --setup, run remote installer directly
+set "ARG=%~1"
+if /I "%ARG%"=="--setup" (
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "iwr -useb 'https://raw.githubusercontent.com/beqare/carefetch/refs/heads/main/install.ps1' | iex"
+    exit /b %ERRORLEVEL%
+)
 if not exist "%TARGET%" (
     if exist "%ProgramFiles%\CareFetch\carefetch.ps1" set "TARGET=%ProgramFiles%\CareFetch\carefetch.ps1"
     if exist "%LOCALAPPDATA%\CareFetch\carefetch.ps1" set "TARGET=%LOCALAPPDATA%\CareFetch\carefetch.ps1"
@@ -101,6 +107,7 @@ if not exist "%TARGET%" (
     exit /b 1
 )
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%TARGET%" %*
+'
 '@
 
     $shim | Set-Content -Path $cmdPath -Encoding ASCII

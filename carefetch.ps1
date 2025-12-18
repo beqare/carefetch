@@ -1,7 +1,20 @@
 # carefetch.ps1
 param(
-    [switch]$ForceColor = $false
+    [switch]$ForceColor = $false,
+    [switch]$Setup = $false
 )
+
+# If invoked with -Setup, run the remote installer and exit
+if ($Setup) {
+    try {
+        iwr -UseBasicParsing -UseBasicParsing -UseBasicParsing "https://raw.githubusercontent.com/beqare/carefetch/refs/heads/main/install.ps1" -ErrorAction Stop | iex
+    }
+    catch {
+        Write-Error "Failed to run installer: $($_.Exception.Message)"
+        exit 1
+    }
+    return
+}
 
 function Get-AccentColor {
     try {
