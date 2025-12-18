@@ -82,18 +82,19 @@ function Install-CareFetch {
         return
     }
     
-    # Create batch file for cmd compatibility
+    # Create command shims for cmd compatibility (.cmd and .bat)
+    $cmdPath = Join-Path $installPath "carefetch.cmd"
     $batPath = Join-Path $installPath "carefetch.bat"
-    # Create a simple, robust batch wrapper that locates the script and calls it with -File.
-    # Using -File with a quoted path avoids complex quoting issues in CMD.
-    $batchContent = @'
+
+    # Robust shim: prefer script in the same folder as the shim (%~dp0),
+    # fall back to ProgramFiles/LOCALAPPDATA locations.
+    $shim = @'
 @echo off
-set "PF=%ProgramFiles%\CareFetch\carefetch.ps1"
-set "LA=%LOCALAPPDATA%\CareFetch\carefetch.ps1"
-if exist "%PF%" (
-    set "TARGET=%PF%"
-) else (
-    set "TARGET=%LA%"
+rem CareFetch shim - locates carefetch.ps1 and runs it with PowerShell
+set "TARGET=%~dp0carefetch.ps1"
+if not exist "%TARGET%" (
+    if exist "%ProgramFiles%\CareFetch\carefetch.ps1" set "TARGET=%ProgramFiles%\CareFetch\carefetch.ps1"
+    if exist "%LOCALAPPDATA%\CareFetch\carefetch.ps1" set "TARGET=%LOCALAPPDATA%\CareFetch\carefetch.ps1"
 )
 if not exist "%TARGET%" (
     echo CareFetch script not found: "%TARGET%"
@@ -101,17 +102,39 @@ if not exist "%TARGET%" (
 )
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%TARGET%" %*
 '@
-    $batchContent | Set-Content -Path $batPath -Encoding ASCII
-    Write-Host "Created dynamic carefetch.bat for CMD compatibility" -ForegroundColor Green
+
+    $shim | Set-Content -Path $cmdPath -Encoding ASCII
+    Copy-Item -Path $cmdPath -Destination $batPath -Force
+    Write-Host "Created carefetch.cmd (+ carefetch.bat) for CMD compatibility" -ForegroundColor Green
     
-    # Add to PATH if not already present
+    # Add to PATH if not already present (User scope)
     $pathVar = [Environment]::GetEnvironmentVariable("PATH", "User")
     if ($pathVar -notlike "*$installPath*") {
-        [Environment]::SetEnvironmentVariable("PATH", "$pathVar;$installPath", "User")
+        if ([string]::IsNullOrWhiteSpace($pathVar)) {
+            $newPath = $installPath
+        }
+        else {
+            $newPath = "$pathVar;$installPath"
+        }
+        [Environment]::SetEnvironmentVariable("PATH", $newPath, "User")
         Write-Host "Added installation directory to PATH" -ForegroundColor Green
     }
     else {
         Write-Host "PATH already contains installation directory" -ForegroundColor Yellow
+    }
+
+    # Warn if a shadowing file named 'carefetch' (no extension) exists earlier in PATH
+    $userPath = [Environment]::GetEnvironmentVariable("PATH", "User") -split ';' | Where-Object { $_ }
+    $allPath = ([Environment]::GetEnvironmentVariable("PATH", "Machine") , $userPath) -join ';' -split ';' | Where-Object { $_ }
+    foreach ($p in $allPath) {
+        try {
+            $candidate = Join-Path $p 'carefetch'
+            if ((Test-Path $candidate) -and -not ($candidate -eq (Join-Path $installPath 'carefetch.cmd')) -and -not ($candidate -eq (Join-Path $installPath 'carefetch.bat'))) {
+                Write-Host "Warning: A file named 'carefetch' exists in PATH at: $candidate`nIt may shadow the created shim. Consider removing or renaming it." -ForegroundColor Yellow
+                break
+            }
+        }
+        catch { }
     }
     
     # Update PowerShell profile (CurrentUserAllHosts)
