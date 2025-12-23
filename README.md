@@ -24,3 +24,11 @@ Just type in cmd or powershell:
 ```powershell
 carefetch
 ```
+
+--- 
+
+## One Time Usage
+Run this command in PowerShell (no admin)
+```powershell
+iwr -useb https://raw.githubusercontent.com/beqare/carefetch/refs/heads/main/carefetch.ps1 | iex
+```
