@@ -29,6 +29,52 @@ function Get-InstallationPath {
     }
 }
 
+function Get-PathScope {
+    if (([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+        return "Machine"
+    }
+
+    return "User"
+}
+
+function Add-PathEntry {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$PathEntry
+    )
+
+    $scope = Get-PathScope
+    $pathVar = [Environment]::GetEnvironmentVariable("PATH", $scope)
+    $entries = @($pathVar -split ';' | Where-Object { $_ })
+
+    if ($entries -contains $PathEntry) {
+        return $false
+    }
+
+    $newPath = if ($entries.Count -gt 0) {
+        (@($entries) + $PathEntry) -join ';'
+    }
+    else {
+        $PathEntry
+    }
+
+    [Environment]::SetEnvironmentVariable("PATH", $newPath, $scope)
+    return $true
+}
+
+function Remove-PathEntry {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$PathEntry
+    )
+
+    $scope = Get-PathScope
+    $pathVar = [Environment]::GetEnvironmentVariable("PATH", $scope)
+    $entries = @($pathVar -split ';' | Where-Object { $_ -and $_ -ne $PathEntry })
+    $newPath = $entries -join ';'
+    [Environment]::SetEnvironmentVariable("PATH", $newPath, $scope)
+}
+
 function Get-InstallStatus {
     $installPath = Get-InstallationPath
     $scriptPath = Join-Path $installPath "carefetch.ps1"
@@ -100,23 +146,20 @@ if not exist "%TARGET%" (
     echo CareFetch script not found: "%TARGET%"
     exit /b 1
 )
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%TARGET%" %*
+where /q pwsh.exe
+if %ERRORLEVEL% EQU 0 (
+    pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "%TARGET%" %*
+) else (
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%TARGET%" %*
+)
 '@
 
     $shim | Set-Content -Path $cmdPath -Encoding ASCII
     Copy-Item -Path $cmdPath -Destination $batPath -Force
     Write-Host "Created carefetch.cmd (+ carefetch.bat) for CMD compatibility" -ForegroundColor Green
     
-    # Add to PATH if not already present (User scope)
-    $pathVar = [Environment]::GetEnvironmentVariable("PATH", "User")
-    if ($pathVar -notlike "*$installPath*") {
-        if ([string]::IsNullOrWhiteSpace($pathVar)) {
-            $newPath = $installPath
-        }
-        else {
-            $newPath = "$pathVar;$installPath"
-        }
-        [Environment]::SetEnvironmentVariable("PATH", $newPath, "User")
+    # Add to PATH if not already present
+    if (Add-PathEntry -PathEntry $installPath) {
         Write-Host "Added installation directory to PATH" -ForegroundColor Green
     }
     else {
@@ -177,7 +220,7 @@ Set-Alias -Name cf -Value carefetch -Scope Global -ErrorAction SilentlyContinue
     $profileContent = $profileContent -replace "(?s)# CareFetch Function.*?Set-Alias -Name cf.*?`n`n?", ""
 
     # Write back cleaned profile
-    Set-Content -Path $profilePath -Value $profileContent.Trim() -Force -ErrorAction SilentlyContinue
+    Set-Content -Path $profilePath -Value $profileContent.Trim() -Force -Encoding UTF8 -ErrorAction SilentlyContinue
 
     # Append new definition
     Add-Content -Path $profilePath -Value "`n$aliasFunction" -Encoding UTF8
@@ -228,10 +271,7 @@ function Uninstall-CareFetch {
     }
     
     # Remove from PATH
-    $pathVar = [Environment]::GetEnvironmentVariable("PATH", "User")
-    $paths = $pathVar -split ';' | Where-Object { $_ -and $_ -notlike "*CareFetch*" }
-    $newPath = $paths -join ';'
-    [Environment]::SetEnvironmentVariable("PATH", $newPath, "User")
+    Remove-PathEntry -PathEntry $status.Path
     Write-Host "Removed CareFetch from PATH" -ForegroundColor Green
     
     # Delete installation directory
